@@ -34,7 +34,7 @@ class RAINFLOW_PT_main(bpy.types.Panel):
         controller = active_controller(context)
 
         if controller:
-            layout.label(text="Active setup", icon='MOD_NODES')
+            layout.label(text="Active setup", icon='GEOMETRY_NODES')
             layout.label(text=controller.name, icon='OBJECT_DATA')
         elif context.scene:
             layout.operator("rainflow.add_simulation", icon='ADD')

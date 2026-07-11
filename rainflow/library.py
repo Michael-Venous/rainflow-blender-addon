@@ -6,6 +6,8 @@ import bpy
 
 from .constants import (
     CONTROLLER_GROUP_TAG,
+    GROUP_GRAPH_VERSION,
+    GROUP_GRAPH_VERSION_TAG,
     GROUP_OWNER_TAG,
     LIBRARY_GROUP_NAME,
     LIBRARY_TAG,
@@ -99,28 +101,38 @@ def relink_group_drivers(node_group, controller, modifier):
                 target.data_path = _modifier_data_path(modifier, target.data_path)
 
 
-def make_controller_node_group(controller, modifier, source_group=None):
-    """Create an isolated main tree and isolated driven subgroups for one controller."""
-    source_group = source_group or load_node_group()
-    controller_group = source_group.copy()
-    controller_group.name = f"{LIBRARY_GROUP_NAME} — {controller.name}"
-    controller_group[CONTROLLER_GROUP_TAG] = True
-    controller_group[GROUP_OWNER_TAG] = controller.name
-    if LIBRARY_TAG in controller_group:
-        del controller_group[LIBRARY_TAG]
+def _copy_group_graph(source_group, controller, modifier, copies):
+    """Copy a node group and its complete nested Geometry Nodes dependency graph."""
+    if source_group in copies:
+        return copies[source_group]
 
-    for node in controller_group.nodes:
+    group_copy = source_group.copy()
+    copies[source_group] = group_copy
+    group_copy.name = f"{source_group.name} — {controller.name}"
+    group_copy[CONTROLLER_GROUP_TAG] = True
+    group_copy[GROUP_OWNER_TAG] = controller.name
+    group_copy[GROUP_GRAPH_VERSION_TAG] = GROUP_GRAPH_VERSION
+    if LIBRARY_TAG in group_copy:
+        del group_copy[LIBRARY_TAG]
+
+    for node in group_copy.nodes:
         child_group = getattr(node, "node_tree", None)
-        animation_data = getattr(child_group, "animation_data", None)
-        if not animation_data or not animation_data.drivers:
+        if not child_group or child_group.bl_idname != 'GeometryNodeTree':
             continue
-        child_copy = child_group.copy()
-        child_copy.name = f"{child_group.name} — {controller.name}"
-        child_copy[CONTROLLER_GROUP_TAG] = True
-        child_copy[GROUP_OWNER_TAG] = controller.name
-        node.node_tree = child_copy
-        relink_group_drivers(child_copy, controller, modifier)
+        node.node_tree = _copy_group_graph(
+            child_group, controller, modifier, copies
+        )
 
+    relink_group_drivers(group_copy, controller, modifier)
+    return group_copy
+
+
+def make_controller_node_group(controller, modifier, source_group=None):
+    """Create an isolated recursive node-group graph for one controller."""
+    source_group = source_group or load_node_group()
+    controller_group = _copy_group_graph(
+        source_group, controller, modifier, copies={}
+    )
     modifier.node_group = controller_group
     return controller_group
 
@@ -128,29 +140,53 @@ def make_controller_node_group(controller, modifier, source_group=None):
 def ensure_controller_node_group(controller, modifier):
     """Migrate a shared/legacy setup or repair targets on an isolated setup."""
     node_group = modifier.node_group
-    if not node_group or not node_group.get(CONTROLLER_GROUP_TAG):
-        return make_controller_node_group(controller, modifier, node_group or load_node_group())
+    if (
+        not node_group
+        or not node_group.get(CONTROLLER_GROUP_TAG)
+        or node_group.get(GROUP_GRAPH_VERSION_TAG) != GROUP_GRAPH_VERSION
+    ):
+        old_group = node_group
+        new_group = make_controller_node_group(
+            controller, modifier, load_node_group()
+        )
+        if old_group and old_group.get(CONTROLLER_GROUP_TAG):
+            remove_controller_node_groups(old_group)
+        return new_group
 
-    node_group[GROUP_OWNER_TAG] = controller.name
-    for node in node_group.nodes:
-        child_group = getattr(node, "node_tree", None)
-        if child_group and child_group.get(CONTROLLER_GROUP_TAG):
-            child_group[GROUP_OWNER_TAG] = controller.name
-            relink_group_drivers(child_group, controller, modifier)
+    for group in controller_group_graph(node_group):
+        group[GROUP_OWNER_TAG] = controller.name
+        relink_group_drivers(group, controller, modifier)
     return node_group
+
+
+def controller_group_graph(node_group):
+    """Return every private group reachable from a controller's main group."""
+    groups = []
+    visited = set()
+
+    def visit(group):
+        if not group or group in visited or not group.get(CONTROLLER_GROUP_TAG):
+            return
+        visited.add(group)
+        groups.append(group)
+        for node in group.nodes:
+            visit(getattr(node, "node_tree", None))
+
+    visit(node_group)
+    return groups
 
 
 def remove_controller_node_groups(node_group):
     """Remove private controller trees after their modifier owner has been deleted."""
     if not node_group or not node_group.get(CONTROLLER_GROUP_TAG):
         return
-    child_groups = [
-        node.node_tree for node in node_group.nodes
-        if getattr(node, "node_tree", None)
-        and node.node_tree.get(CONTROLLER_GROUP_TAG)
-    ]
-    if node_group.users == 0:
-        bpy.data.node_groups.remove(node_group)
-    for child_group in child_groups:
-        if child_group.users == 0:
-            bpy.data.node_groups.remove(child_group)
+    pending = controller_group_graph(node_group)
+    while pending:
+        removed_any = False
+        for group in list(pending):
+            if group.users == 0:
+                bpy.data.node_groups.remove(group)
+                pending.remove(group)
+                removed_any = True
+        if not removed_any:
+            break

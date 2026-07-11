@@ -1,6 +1,7 @@
 """Operators that create, manage, and remove isolated RainFlow setups."""
 
 import bpy
+from bpy.app.handlers import persistent
 from mathutils import Vector
 
 from .constants import (
@@ -10,9 +11,15 @@ from .constants import (
     SPAWNER_COLLECTION_TAG,
     SPAWNER_TAG,
     TARGET_TAG,
-    VERSION,
 )
-from .library import input_sockets, is_rainflow_modifier, load_node_group
+from .library import (
+    ensure_controller_node_group,
+    input_sockets,
+    is_rainflow_modifier,
+    load_node_group,
+    make_controller_node_group,
+    remove_controller_node_groups,
+)
 
 
 def _ensure_scene_collection(name, tag):
@@ -79,7 +86,7 @@ def _create_controller(name, simulation_collection, static_collection, spawner_c
     bpy.context.scene.collection.objects.link(controller)
 
     modifier = controller.modifiers.new("RainFlow Surface Raindrops", 'NODES')
-    modifier.node_group = load_node_group()
+    make_controller_node_group(controller, modifier, load_node_group())
     for socket in input_sockets(modifier.node_group):
         if socket.name == "hide static in viewport":
             modifier[socket.identifier] = True
@@ -103,6 +110,27 @@ def active_controller(context):
     obj = context.object
     if obj and obj.get(CONTROLLER_TAG):
         return obj
+    return None
+
+
+def repair_existing_controllers():
+    """Migrate legacy shared groups and restore driver targets after file load."""
+    for controller in (obj for obj in bpy.data.objects if obj.get(CONTROLLER_TAG)):
+        for modifier in controller.modifiers:
+            if is_rainflow_modifier(modifier):
+                ensure_controller_node_group(controller, modifier)
+
+
+@persistent
+def _repair_on_load(_unused):
+    repair_existing_controllers()
+
+
+def _repair_after_register():
+    try:
+        repair_existing_controllers()
+    except AttributeError:
+        return 0.1
     return None
 
 
@@ -224,6 +252,9 @@ class RAINFLOW_OT_duplicate_simulation(bpy.types.Operator):
         duplicate.name = f"{source.name} Copy"
         duplicate.data.name = f"{source.data.name} Copy"
         context.scene.collection.objects.link(duplicate)
+        for modifier in duplicate.modifiers:
+            if is_rainflow_modifier(modifier):
+                make_controller_node_group(duplicate, modifier, modifier.node_group)
         for obj in context.selected_objects:
             obj.select_set(False)
         duplicate.select_set(True)
@@ -245,14 +276,18 @@ class RAINFLOW_OT_remove_simulation(bpy.types.Operator):
     def execute(self, context):
         controller = active_controller(context)
         linked_collections = set()
+        controller_groups = []
         for modifier in controller.modifiers:
             if is_rainflow_modifier(modifier):
+                controller_groups.append(modifier.node_group)
                 for socket in input_sockets(modifier.node_group):
                     value = modifier.get(socket.identifier)
                     if isinstance(value, bpy.types.Collection):
                         linked_collections.add(value)
 
         bpy.data.objects.remove(controller, do_unlink=True)
+        for node_group in controller_groups:
+            remove_controller_node_groups(node_group)
         for collection in linked_collections:
             if collection.get(SPAWNER_COLLECTION_TAG):
                 for obj in list(collection.objects):
@@ -306,8 +341,16 @@ CLASSES = (
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
+    if _repair_on_load not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_repair_on_load)
+    if not bpy.app.timers.is_registered(_repair_after_register):
+        bpy.app.timers.register(_repair_after_register, first_interval=0.1)
 
 
 def unregister():
+    if _repair_on_load in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_repair_on_load)
+    if bpy.app.timers.is_registered(_repair_after_register):
+        bpy.app.timers.unregister(_repair_after_register)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

@@ -4,6 +4,8 @@ This repository contains the source code for the RainFlow Blender add-on, licens
 
 RainFlow provides the Blender user interface and non-destructive scene-management workflow around a Geometry Nodes rain system. Artists select a required Simulation Mesh Collection, may select optional Static Distribute and Rain Spawner collections, and control every published input on the attached Geometry Nodes group. Static distribution defaults to the simulation collection; when no spawner is selected, RainFlow generates a correctly sized wireframe plane that is hidden from renders.
 
+Each controller receives private `raindrop`, `controls`, and `post` node groups. Their drivers target that controller's modifier, keeping duplicated and multi-simulation setups independent.
+
 ## Important: this is source code only
 
 This public repository deliberately does **not** contain `rainflow/resources/rainflow_library.blend`, example scenes, renders, customer packages, or seller documentation. The add-on loads that library at runtime; it is supplied with the separately distributed RainFlow product package.

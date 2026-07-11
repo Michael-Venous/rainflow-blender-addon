@@ -8,6 +8,23 @@ SIM_COLLECTION_TAG = "rainflow_simulation_collection"
 SPAWNER_COLLECTION_TAG = "rainflow_spawner_collection"
 SPAWNER_TAG = "rainflow_spawn_surface"
 
+# Product defaults applied to every newly created RainFlow modifier. These are
+# intentionally stored in the add-on instead of relying on mutable node-group
+# interface defaults in the source .blend.
+DEFAULT_SOCKET_VALUES = {
+    "rain vector": (0.0, 0.0, -0.01),
+    "speed": 1.0,
+    "iterations": 1.0,
+    "density": 1.0,
+    "lifetime": 18.0,
+    "adhesion (inverted)": 1.0,
+    "noise scale": 0.03,
+    "direction vector": (0.0, 0.0, -0.1),
+    "wind factor": 2.0,
+    "size": 8.0,
+    "mesh detail": 1,
+}
+
 # These descriptions make the current clean control frame readable to artists.
 # The UI remains data-driven: any future published socket still appears.
 SOCKET_HELP = {

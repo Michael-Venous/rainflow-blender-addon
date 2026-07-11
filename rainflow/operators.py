@@ -5,6 +5,7 @@ from mathutils import Vector
 
 from .constants import (
     CONTROLLER_TAG,
+    DEFAULT_SOCKET_VALUES,
     SIM_COLLECTION_TAG,
     SPAWNER_COLLECTION_TAG,
     SPAWNER_TAG,
@@ -88,6 +89,8 @@ def _create_controller(name, simulation_collection, static_collection, spawner_c
             modifier[socket.identifier] = static_collection
         elif socket.name == "simulation mesh":
             modifier[socket.identifier] = simulation_collection
+        elif socket.name in DEFAULT_SOCKET_VALUES:
+            modifier[socket.identifier] = DEFAULT_SOCKET_VALUES[socket.name]
     return controller
 
 

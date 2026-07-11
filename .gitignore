@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+
+# Runtime product asset; deliberately not part of the public source repository.
+rainflow/resources/rainflow_library.blend

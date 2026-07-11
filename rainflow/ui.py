@@ -36,10 +36,10 @@ class RAINFLOW_PT_main(bpy.types.Panel):
         if controller:
             layout.label(text="Active setup", icon='MOD_NODES')
             layout.label(text=controller.name, icon='OBJECT_DATA')
-        elif context.active_object and context.active_object.type == 'MESH':
+        elif context.scene:
             layout.operator("rainflow.add_simulation", icon='ADD')
         else:
-            layout.label(text="Select a mesh to create a setup.", icon='INFO')
+            layout.label(text="Choose a Simulation Mesh Collection to create a setup.", icon='INFO')
 
         controllers = find_controllers(context.scene)
         if controllers:

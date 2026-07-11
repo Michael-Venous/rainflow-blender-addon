@@ -26,15 +26,27 @@ def _link_once(collection, obj):
         collection.objects.link(obj)
 
 
-def _world_bounds(obj):
-    corners = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+def _simulation_meshes(collection):
+    """Return meshes in the selected collection and any child collections."""
+    return [obj for obj in collection.all_objects if obj.type == 'MESH']
+
+
+def _collection_world_bounds(collection):
+    meshes = _simulation_meshes(collection)
+    if not meshes:
+        raise ValueError("Simulation Mesh Collection must contain at least one mesh object")
+    corners = [
+        obj.matrix_world @ Vector(corner)
+        for obj in meshes
+        for corner in obj.bound_box
+    ]
     lower = Vector((min(v.x for v in corners), min(v.y for v in corners), min(v.z for v in corners)))
     upper = Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))
     return lower, upper
 
 
-def _create_spawn_surface(name, target, collection):
-    lower, upper = _world_bounds(target)
+def _create_spawn_surface(name, simulation_collection, collection):
+    lower, upper = _collection_world_bounds(simulation_collection)
     width = max(upper.x - lower.x, 0.1) * 1.5
     depth = max(upper.y - lower.y, 0.1) * 1.5
     z = upper.z + max(upper.z - lower.z, width, depth) * 0.05
@@ -56,12 +68,12 @@ def _create_spawn_surface(name, target, collection):
     return surface
 
 
-def _create_controller(name, target, sim_collection, spawner_collection):
+def _create_controller(name, simulation_collection, static_collection, spawner_collection):
     mesh = bpy.data.meshes.new(f"{name} Mesh")
     mesh.from_pydata([(0, 0, 0), (0.001, 0, 0), (0, 0.001, 0)], [], [(0, 1, 2)])
     controller = bpy.data.objects.new(name, mesh)
     controller[CONTROLLER_TAG] = True
-    controller[TARGET_TAG] = target.name
+    controller[TARGET_TAG] = simulation_collection.name
     controller.hide_render = True
     bpy.context.scene.collection.objects.link(controller)
 
@@ -72,8 +84,10 @@ def _create_controller(name, target, sim_collection, spawner_collection):
             modifier[socket.identifier] = True
         elif socket.name == "rain spawner":
             modifier[socket.identifier] = spawner_collection
-        elif socket.name in {"static distribute mesh", "simulation mesh"}:
-            modifier[socket.identifier] = sim_collection
+        elif socket.name == "static distribute mesh":
+            modifier[socket.identifier] = static_collection
+        elif socket.name == "simulation mesh":
+            modifier[socket.identifier] = simulation_collection
     return controller
 
 
@@ -91,25 +105,85 @@ def active_controller(context):
 
 class RAINFLOW_OT_add_simulation(bpy.types.Operator):
     bl_idname = "rainflow.add_simulation"
-    bl_label = "Add RainFlow to Selected Mesh"
-    bl_description = "Create a non-destructive RainFlow controller and collections for the selected mesh"
+    bl_label = "Create RainFlow Simulation"
+    bl_description = "Create a non-destructive RainFlow controller from a selected Simulation Mesh Collection"
     bl_options = {'REGISTER', 'UNDO'}
 
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'MESH'
+    simulation_collection_name: bpy.props.StringProperty(
+        name="Simulation Mesh Collection",
+        description="Required collection containing the meshes where raindrops flow",
+    )
+    static_collection_name: bpy.props.StringProperty(
+        name="Static Distribute Collection",
+        description="Optional collection for extra static drops; defaults to Simulation Mesh Collection",
+    )
+    spawner_collection_name: bpy.props.StringProperty(
+        name="Rain Spawner Collection",
+        description="Optional collection containing rain-spawn surfaces; a wireframe plane is created when empty",
+    )
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=460)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.prop_search(
+            self, "simulation_collection_name", bpy.data, "collections",
+            text="Simulation Mesh Collection",
+        )
+        layout.prop_search(
+            self, "static_collection_name", bpy.data, "collections",
+            text="Static Distribute Collection",
+        )
+        layout.prop_search(
+            self, "spawner_collection_name", bpy.data, "collections",
+            text="Rain Spawner Collection",
+        )
+        layout.separator()
+        layout.label(text="Simulation Mesh Collection is required.", icon='INFO')
+        layout.label(text="Blank optional fields use safe generated defaults.")
 
     def execute(self, context):
-        target = context.active_object
-        base_name = f"RainFlow — {target.name}"
-        sim_collection = _ensure_scene_collection(f"{base_name} — Simulation", SIM_COLLECTION_TAG)
-        spawner_collection = _ensure_scene_collection(f"{base_name} — Spawners", SPAWNER_COLLECTION_TAG)
-        _link_once(sim_collection, target)
-        _create_spawn_surface(f"{base_name} — Spawn Surface", target, spawner_collection)
-        controller = _create_controller(f"{base_name} — Controller", target, sim_collection, spawner_collection)
+        simulation_collection = bpy.data.collections.get(self.simulation_collection_name)
+        if not simulation_collection:
+            self.report({'ERROR'}, "Select a Simulation Mesh Collection")
+            return {'CANCELLED'}
+        if not _simulation_meshes(simulation_collection):
+            self.report({'ERROR'}, "Simulation Mesh Collection must contain at least one mesh")
+            return {'CANCELLED'}
+
+        static_collection = (
+            bpy.data.collections.get(self.static_collection_name)
+            if self.static_collection_name else simulation_collection
+        )
+        if self.static_collection_name and not static_collection:
+            self.report({'ERROR'}, "Static Distribute Collection no longer exists")
+            return {'CANCELLED'}
+        spawner_collection = (
+            bpy.data.collections.get(self.spawner_collection_name)
+            if self.spawner_collection_name else None
+        )
+        if self.spawner_collection_name and not spawner_collection:
+            self.report({'ERROR'}, "Rain Spawner Collection no longer exists")
+            return {'CANCELLED'}
+        base_name = f"RainFlow — {simulation_collection.name}"
+        if not spawner_collection:
+            spawner_collection = _ensure_scene_collection(
+                f"{base_name} — Spawners", SPAWNER_COLLECTION_TAG
+            )
+            _create_spawn_surface(
+                f"{base_name} — Spawn Surface", simulation_collection, spawner_collection
+            )
+        controller = _create_controller(
+            f"{base_name} — Controller",
+            simulation_collection,
+            static_collection,
+            spawner_collection,
+        )
         context.view_layer.objects.active = controller
         controller.select_set(True)
-        self.report({'INFO'}, f"Created RainFlow setup for {target.name}")
+        self.report({'INFO'}, f"Created RainFlow setup for {simulation_collection.name}")
         return {'FINISHED'}
 
 

@@ -2,6 +2,7 @@ ADDON_ID = "rainflow"
 VERSION = "1.0.0"
 LIBRARY_GROUP_NAME = "raindrop"
 LIBRARY_TAG = "rainflow_library_version"
+LIBRARY_SOURCE_TAG = "rainflow_library_source"
 CONTROLLER_TAG = "rainflow_controller"
 CONTROLLER_GROUP_TAG = "rainflow_controller_node_group"
 GROUP_OWNER_TAG = "rainflow_group_owner"
@@ -27,6 +28,23 @@ DEFAULT_SOCKET_VALUES = {
     "wind factor": 2.0,
     "size": 8.0,
     "mesh detail": 1,
+}
+
+# Direct output bindings used by the streamlined controls/post node groups.
+# rain_lifetime is intentionally not mapped: it is an internal simulation
+# constant, distinct from the user-facing lifetime/max-age control.
+CONTROL_OUTPUT_BINDINGS = {
+    "rain_speed": "rain vector",
+    "density": "density",
+    "max age": "lifetime",
+    "adhesion": "adhesion (inverted)",
+    "noise scale": "noise scale",
+    "direction vector": "direction vector",
+    "wind factor": "wind factor",
+}
+POST_OUTPUT_BINDINGS = {
+    "size": "size",
+    "detail": "mesh detail",
 }
 
 # These descriptions make the current clean control frame readable to artists.

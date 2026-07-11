@@ -6,6 +6,8 @@ RainFlow provides the Blender user interface and non-destructive scene-managemen
 
 Each controller receives a private recursive copy of the `raindrop` dependency graph. All nested `controls` and `post` instances reuse that controller's private driven groups, keeping duplicated and multi-simulation setups independent.
 
+RainFlow also repairs direct Group Output drivers used by the streamlined `controls` and `post` groups. Internal values such as `rain_lifetime` remain independent from the user-facing lifetime/max-age modifier control.
+
 ## Important: this is source code only
 
 This public repository deliberately does **not** contain `rainflow/resources/rainflow_library.blend`, example scenes, renders, customer packages, or seller documentation. The add-on loads that library at runtime; it is supplied with the separately distributed RainFlow product package.

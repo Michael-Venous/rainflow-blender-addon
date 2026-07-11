@@ -6,11 +6,14 @@ import bpy
 
 from .constants import (
     CONTROLLER_GROUP_TAG,
+    CONTROL_OUTPUT_BINDINGS,
     GROUP_GRAPH_VERSION,
     GROUP_GRAPH_VERSION_TAG,
     GROUP_OWNER_TAG,
     LIBRARY_GROUP_NAME,
+    LIBRARY_SOURCE_TAG,
     LIBRARY_TAG,
+    POST_OUTPUT_BINDINGS,
     SOCKET_HELP,
 )
 
@@ -101,7 +104,61 @@ def relink_group_drivers(node_group, controller, modifier):
                 target.data_path = _modifier_data_path(modifier, target.data_path)
 
 
-def _copy_group_graph(source_group, controller, modifier, copies):
+def _configure_socket_driver(socket, socket_identifier, controller, modifier, index=None):
+    """Create or replace one direct Group Output driver."""
+    fcurve = (
+        socket.driver_add("default_value", index)
+        if index is not None else socket.driver_add("default_value")
+    )
+    driver = fcurve.driver
+    while driver.variables:
+        driver.variables.remove(driver.variables[0])
+    variable = driver.variables.new()
+    variable.name = socket_identifier
+    variable.type = 'SINGLE_PROP'
+    target = variable.targets[0]
+    target.id_type = 'OBJECT'
+    target.id = controller
+    suffix = f'[{index}]' if index is not None else ''
+    target.data_path = _modifier_data_path(
+        modifier, f'modifiers["unused"]["{socket_identifier}"]{suffix}'
+    )
+    driver.expression = variable.name
+
+
+def ensure_direct_output_drivers(node_group, controller, modifier, modifier_sockets):
+    """Restore streamlined controls/post drivers directly on Group Output sockets."""
+    if node_group.name.startswith("controls"):
+        bindings = CONTROL_OUTPUT_BINDINGS
+    elif node_group.name.startswith("post"):
+        bindings = POST_OUTPUT_BINDINGS
+    else:
+        return
+
+    output_node = next(
+        (node for node in node_group.nodes if node.bl_idname == 'NodeGroupOutput'),
+        None,
+    )
+    if not output_node:
+        return
+    for output_name, modifier_socket_name in bindings.items():
+        output_socket = output_node.inputs.get(output_name)
+        socket_identifier = modifier_sockets.get(modifier_socket_name)
+        if not output_socket or not socket_identifier:
+            continue
+        default_value = getattr(output_socket, "default_value", None)
+        if hasattr(default_value, "__len__") and not isinstance(default_value, str):
+            for index in range(len(default_value)):
+                _configure_socket_driver(
+                    output_socket, socket_identifier, controller, modifier, index
+                )
+        else:
+            _configure_socket_driver(
+                output_socket, socket_identifier, controller, modifier
+            )
+
+
+def _copy_group_graph(source_group, controller, modifier, modifier_sockets, copies):
     """Copy a node group and its complete nested Geometry Nodes dependency graph."""
     if source_group in copies:
         return copies[source_group]
@@ -114,24 +171,32 @@ def _copy_group_graph(source_group, controller, modifier, copies):
     group_copy[GROUP_GRAPH_VERSION_TAG] = GROUP_GRAPH_VERSION
     if LIBRARY_TAG in group_copy:
         del group_copy[LIBRARY_TAG]
+    if LIBRARY_SOURCE_TAG in group_copy:
+        del group_copy[LIBRARY_SOURCE_TAG]
 
     for node in group_copy.nodes:
         child_group = getattr(node, "node_tree", None)
         if not child_group or child_group.bl_idname != 'GeometryNodeTree':
             continue
         node.node_tree = _copy_group_graph(
-            child_group, controller, modifier, copies
+            child_group, controller, modifier, modifier_sockets, copies
         )
 
     relink_group_drivers(group_copy, controller, modifier)
+    ensure_direct_output_drivers(
+        group_copy, controller, modifier, modifier_sockets
+    )
     return group_copy
 
 
 def make_controller_node_group(controller, modifier, source_group=None):
     """Create an isolated recursive node-group graph for one controller."""
     source_group = source_group or load_node_group()
+    modifier_sockets = {
+        socket.name: socket.identifier for socket in input_sockets(source_group)
+    }
     controller_group = _copy_group_graph(
-        source_group, controller, modifier, copies={}
+        source_group, controller, modifier, modifier_sockets, copies={}
     )
     modifier.node_group = controller_group
     return controller_group
@@ -153,9 +218,15 @@ def ensure_controller_node_group(controller, modifier):
             remove_controller_node_groups(old_group)
         return new_group
 
+    modifier_sockets = {
+        socket.name: socket.identifier for socket in input_sockets(node_group)
+    }
     for group in controller_group_graph(node_group):
         group[GROUP_OWNER_TAG] = controller.name
         relink_group_drivers(group, controller, modifier)
+        ensure_direct_output_drivers(
+            group, controller, modifier, modifier_sockets
+        )
     return node_group
 
 

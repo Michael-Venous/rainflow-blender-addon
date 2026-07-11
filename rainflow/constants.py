@@ -1,6 +1,6 @@
 ADDON_ID = "rainflow"
 VERSION = "1.0.0"
-LIBRARY_GROUP_NAME = "WURUWR"
+LIBRARY_GROUP_NAME = "raindrop"
 LIBRARY_TAG = "rainflow_library_version"
 CONTROLLER_TAG = "rainflow_controller"
 TARGET_TAG = "rainflow_target"

@@ -2,8 +2,13 @@
 
 import bpy
 
-from .constants import SETUP_SOCKET_NAMES
-from .library import input_sockets, is_rainflow_modifier, socket_tooltip
+from .constants import (
+    CONTROL_SOCKET_ORDER,
+    SETUP_SOCKET_NAMES,
+    SOCKET_SLIDERS,
+    SOCKET_UI_LABELS,
+)
+from .library import input_sockets, is_rainflow_modifier, modifier_socket_input
 from .operators import active_controller, find_controllers
 
 
@@ -13,13 +18,29 @@ def _modifier_for(controller):
 
 def _draw_socket(layout, modifier, socket):
     row = layout.row(align=True)
-    row.prop(modifier, '["' + socket.identifier + '"]', text=socket.name)
-    tooltip = socket_tooltip(socket)
-    if tooltip:
-        row.label(text="", icon='QUESTION')
-        row.active = True
-        row.alert = False
-        row.operator_context = 'INVOKE_DEFAULT'
+    label = SOCKET_UI_LABELS.get(socket.name, socket.name)
+    entry = modifier_socket_input(modifier, socket.identifier)
+    if entry:
+        row.prop(
+            entry, "value", text=label,
+            slider=socket.name in SOCKET_SLIDERS,
+        )
+    else:
+        row.prop(
+            modifier,
+            '["' + socket.identifier + '"]',
+            text=label,
+            slider=socket.name in SOCKET_SLIDERS,
+        )
+
+
+def _control_sockets(node_group):
+    order = {name: index for index, name in enumerate(CONTROL_SOCKET_ORDER)}
+    sockets = [
+        socket for socket in input_sockets(node_group)
+        if socket.name not in SETUP_SOCKET_NAMES
+    ]
+    return sorted(sockets, key=lambda socket: order.get(socket.name, len(order)))
 
 
 class RAINFLOW_PT_main(bpy.types.Panel):
@@ -65,9 +86,8 @@ class RAINFLOW_PT_main(bpy.types.Panel):
 
         controls = layout.box()
         controls.label(text="Rain Controls", icon='MOD_PHYSICS')
-        for socket in input_sockets(modifier.node_group):
-            if socket.name not in SETUP_SOCKET_NAMES:
-                _draw_socket(controls, modifier, socket)
+        for socket in _control_sockets(modifier.node_group):
+            _draw_socket(controls, modifier, socket)
 
         row = layout.row(align=True)
         row.operator("rainflow.duplicate_simulation", icon='DUPLICATE')

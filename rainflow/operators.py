@@ -6,7 +6,6 @@ from mathutils import Vector
 
 from .constants import (
     CONTROLLER_TAG,
-    DEFAULT_SOCKET_VALUES,
     SIM_COLLECTION_TAG,
     SPAWNER_COLLECTION_TAG,
     SPAWNER_TAG,
@@ -14,11 +13,14 @@ from .constants import (
 )
 from .library import (
     ensure_controller_node_group,
+    ensure_modifier_properties,
     input_sockets,
     is_rainflow_modifier,
     load_node_group,
     make_controller_node_group,
+    modifier_socket_value,
     remove_controller_node_groups,
+    set_modifier_socket_value,
 )
 
 
@@ -89,15 +91,20 @@ def _create_controller(name, simulation_collection, static_collection, spawner_c
     make_controller_node_group(controller, modifier, load_node_group())
     for socket in input_sockets(modifier.node_group):
         if socket.name == "hide static in viewport":
-            modifier[socket.identifier] = True
+            set_modifier_socket_value(modifier, socket.identifier, True)
         elif socket.name == "rain spawner":
-            modifier[socket.identifier] = spawner_collection
+            set_modifier_socket_value(
+                modifier, socket.identifier, spawner_collection
+            )
         elif socket.name == "static distribute mesh":
-            modifier[socket.identifier] = static_collection
+            set_modifier_socket_value(
+                modifier, socket.identifier, static_collection
+            )
         elif socket.name == "simulation mesh":
-            modifier[socket.identifier] = simulation_collection
-        elif socket.name in DEFAULT_SOCKET_VALUES:
-            modifier[socket.identifier] = DEFAULT_SOCKET_VALUES[socket.name]
+            set_modifier_socket_value(
+                modifier, socket.identifier, simulation_collection
+            )
+    ensure_modifier_properties(modifier, apply_defaults=True)
     return controller
 
 
@@ -281,7 +288,7 @@ class RAINFLOW_OT_remove_simulation(bpy.types.Operator):
             if is_rainflow_modifier(modifier):
                 controller_groups.append(modifier.node_group)
                 for socket in input_sockets(modifier.node_group):
-                    value = modifier.get(socket.identifier)
+                    value = modifier_socket_value(modifier, socket.identifier)
                     if isinstance(value, bpy.types.Collection):
                         linked_collections.add(value)
 

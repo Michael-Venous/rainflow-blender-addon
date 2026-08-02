@@ -18,11 +18,11 @@ SPAWNER_TAG = "rainflow_spawn_surface"
 # interface defaults in the source .blend.
 DEFAULT_SOCKET_VALUES = {
     "rain vector": (0.0, 0.0, -1.0),
-    "speed": 0.5,
+    "speed": 1.0,
     "rain lifetime": 20.0,
     "iterations": 1,
     "density": 50.0,
-    "density static": 0.0,
+    "density static": 100.0,
     "lifetime": 8.0,
     "adhesion": 0.5,
     "noise scale": 0.03,

@@ -21,6 +21,7 @@ TARGET_TAG = "rainflow_target"
 SIM_COLLECTION_TAG = "rainflow_simulation_collection"
 SPAWNER_COLLECTION_TAG = "rainflow_spawner_collection"
 SPAWNER_TAG = "rainflow_spawn_surface"
+ATTACHED_SPAWNER_TAG = "rainflow_attached_spawner_collection"
 
 # Product defaults applied to every newly created RainFlow modifier. These are
 # intentionally stored in the add-on instead of relying on mutable node-group
@@ -91,7 +92,7 @@ POST_OUTPUT_BINDINGS = {
 # The UI remains data-driven: any future published socket still appears.
 SOCKET_HELP = {
     "hide static in viewport": "Hide extra static droplets in the viewport while keeping them visible in final renders.",
-    "rain spawner": "Collection containing the surfaces that emit falling rain.",
+    "rain spawner": "Collection containing the surfaces that emit falling rain. Its top-level object hierarchies follow the RainFlow controller.",
     "static distribute mesh": "Collection whose surfaces receive extra non-moving droplets. Defaults to the simulation collection.",
     "simulation mesh": "Collection containing the mesh surfaces that the animated droplets move across.",
     "rain vector": "World-space direction of the falling rain. Its length also affects the initial rain velocity.",

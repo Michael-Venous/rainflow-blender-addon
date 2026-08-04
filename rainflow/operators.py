@@ -13,6 +13,7 @@ from bpy.app.handlers import persistent
 from mathutils import Vector
 
 from .constants import (
+    ATTACHED_SPAWNER_TAG,
     CONTROLLER_TAG,
     SIM_COLLECTION_TAG,
     SPAWNER_COLLECTION_TAG,
@@ -81,16 +82,22 @@ def _simulation_parent(collection):
     return None, True
 
 
-def _parent_controller(controller, parent):
-    """Set or clear a controller parent without changing its world transform."""
-    if parent == controller:
-        return
-    world_matrix = controller.matrix_world.copy()
-    controller.parent = parent
+def _set_parent_keep_world(obj, parent):
+    """Set or clear an object parent without changing its world transform."""
+    if parent == obj:
+        return False
+    ancestor = parent
+    while ancestor:
+        if ancestor == obj:
+            return False
+        ancestor = ancestor.parent
+    world_matrix = obj.matrix_world.copy()
+    obj.parent = parent
     if parent:
-        controller.parent_type = 'OBJECT'
-        controller.matrix_parent_inverse = parent.matrix_world.inverted_safe()
-    controller.matrix_world = world_matrix
+        obj.parent_type = 'OBJECT'
+        obj.matrix_parent_inverse = parent.matrix_world.inverted_safe()
+    obj.matrix_world = world_matrix
+    return True
 
 
 def _remove_object_and_unused_mesh(obj):
@@ -138,6 +145,46 @@ def _create_spawn_surface(name, simulation_collection, collection):
     return surface
 
 
+def _collection_root_objects(collection):
+    """Return the top-level object hierarchies represented by a collection."""
+    objects = set(collection.all_objects)
+    return sorted(
+        (obj for obj in objects if obj.parent not in objects),
+        key=lambda obj: obj.name.casefold(),
+    )
+
+
+def _parent_emitter_collection(collection, controller):
+    """Make every emitter hierarchy follow its RainFlow controller."""
+    for root in _collection_root_objects(collection):
+        _set_parent_keep_world(root, controller)
+
+
+def _copy_emitter_collection(collection, controller):
+    """Create a setup-owned emitter copy for an additional controller."""
+    duplicate_collection = _ensure_scene_collection(
+        f"{collection.name} Copy", SPAWNER_COLLECTION_TAG
+    )
+    copies = {}
+    world_matrices = {}
+    for source in sorted(collection.all_objects, key=lambda obj: obj.name.casefold()):
+        duplicate = source.copy()
+        if source.data and hasattr(source.data, "copy"):
+            duplicate.data = source.data.copy()
+        duplicate.name = f"{source.name} Copy"
+        duplicate[SPAWNER_TAG] = True
+        duplicate_collection.objects.link(duplicate)
+        copies[source] = duplicate
+        world_matrices[source] = source.matrix_world.copy()
+
+    for source, duplicate in copies.items():
+        duplicate.parent = None
+        duplicate.matrix_world = world_matrices[source]
+        parent = copies.get(source.parent, controller)
+        _set_parent_keep_world(duplicate, parent)
+    return duplicate_collection
+
+
 def _create_controller(
     name,
     simulation_collection,
@@ -155,7 +202,7 @@ def _create_controller(
     # from renders above; only that helper surface should be viewport-only.
     controller.hide_render = False
     bpy.context.scene.collection.objects.link(controller)
-    _parent_controller(controller, parent_target)
+    _set_parent_keep_world(controller, parent_target)
 
     modifier = controller.modifiers.new("RainFlow Surface Raindrops", 'NODES')
     make_controller_node_group(controller, modifier, load_node_group())
@@ -203,12 +250,102 @@ def _controller_collections(controller):
     return collections
 
 
+def _modifier_collection(modifier, socket_name):
+    socket = next(
+        (
+            item for item in input_sockets(modifier.node_group)
+            if item.name == socket_name
+        ),
+        None,
+    )
+    value = (
+        modifier_socket_value(modifier, socket.identifier)
+        if socket else None
+    )
+    return value if isinstance(value, bpy.types.Collection) else None
+
+
+def _set_modifier_collection(modifier, socket_name, collection):
+    socket = next(
+        (
+            item for item in input_sockets(modifier.node_group)
+            if item.name == socket_name
+        ),
+        None,
+    )
+    if socket:
+        set_modifier_socket_value(modifier, socket.identifier, collection)
+
+
+def _controllers_using_collection(collection, exclude=None):
+    users = []
+    for controller in (obj for obj in bpy.data.objects if obj.get(CONTROLLER_TAG)):
+        if controller == exclude:
+            continue
+        for modifier in controller.modifiers:
+            if (
+                is_rainflow_modifier(modifier)
+                and _modifier_collection(modifier, "rain spawner") == collection
+            ):
+                users.append(controller)
+                break
+    return users
+
+
+def _release_emitter_collection(controller, collection):
+    """Detach or remove a no-longer-assigned emitter collection."""
+    if _controllers_using_collection(collection, exclude=controller):
+        return
+    if collection.get(SPAWNER_COLLECTION_TAG):
+        for obj in list(collection.objects):
+            if obj.get(SPAWNER_TAG):
+                _remove_object_and_unused_mesh(obj)
+        if collection.name in bpy.data.collections:
+            bpy.data.collections.remove(collection)
+        return
+    for root in _collection_root_objects(collection):
+        if root.parent == controller:
+            _set_parent_keep_world(root, None)
+
+
+def _prepare_emitter_collection(controller, modifier):
+    """Give a controller an emitter hierarchy that can safely follow it."""
+    collection = _modifier_collection(modifier, "rain spawner")
+    if not collection:
+        return None
+    previous_name = controller.get(ATTACHED_SPAWNER_TAG, "")
+    previous = bpy.data.collections.get(previous_name) if previous_name else None
+    if previous and previous != collection:
+        _release_emitter_collection(controller, previous)
+    if _controllers_using_collection(collection, exclude=controller):
+        collection = _copy_emitter_collection(collection, controller)
+        _set_modifier_collection(modifier, "rain spawner", collection)
+    else:
+        _parent_emitter_collection(collection, controller)
+    controller[ATTACHED_SPAWNER_TAG] = collection.name
+    return collection
+
+
 def repair_existing_controllers():
     """Migrate legacy shared groups and restore driver targets after file load."""
-    for controller in (obj for obj in bpy.data.objects if obj.get(CONTROLLER_TAG)):
+    controllers = [obj for obj in bpy.data.objects if obj.get(CONTROLLER_TAG)]
+    for controller in controllers:
         for modifier in controller.modifiers:
             if is_rainflow_modifier(modifier):
                 ensure_controller_node_group(controller, modifier)
+    for controller in controllers:
+        for modifier in controller.modifiers:
+            if not is_rainflow_modifier(modifier):
+                continue
+            collection = _modifier_collection(modifier, "rain spawner")
+            if (
+                collection
+                and not _controllers_using_collection(
+                    collection, exclude=controller
+                )
+            ):
+                _parent_emitter_collection(collection, controller)
+                controller[ATTACHED_SPAWNER_TAG] = collection.name
 
 
 @persistent
@@ -240,7 +377,7 @@ class RAINFLOW_OT_add_simulation(bpy.types.Operator):
     )
     spawner_collection_name: bpy.props.StringProperty(
         name="Rain Spawner Collection",
-        description="Optional collection containing rain-spawn surfaces; a wireframe plane is created when empty",
+        description="Optional collection containing rain-spawn surfaces. Its top-level objects follow the controller; a wireframe plane is created when empty.",
     )
 
     def invoke(self, context, event):
@@ -305,6 +442,11 @@ class RAINFLOW_OT_add_simulation(bpy.types.Operator):
             spawner_collection,
             parent_target,
         )
+        modifier = next(
+            item for item in controller.modifiers
+            if is_rainflow_modifier(item)
+        )
+        _prepare_emitter_collection(controller, modifier)
         if ambiguous_parent:
             self.report({"WARNING"}, (
                 "The collection has independently rooted meshes, so the controller "
@@ -358,6 +500,7 @@ class RAINFLOW_OT_duplicate_simulation(bpy.types.Operator):
         for modifier in duplicate.modifiers:
             if is_rainflow_modifier(modifier):
                 make_controller_node_group(duplicate, modifier, modifier.node_group)
+                _prepare_emitter_collection(duplicate, modifier)
         for obj in context.selected_objects:
             obj.select_set(False)
         duplicate.select_set(True)
@@ -369,7 +512,7 @@ class RAINFLOW_OT_duplicate_simulation(bpy.types.Operator):
 class RAINFLOW_OT_refresh_parent(bpy.types.Operator):
     bl_idname = "rainflow.refresh_parent"
     bl_label = "Update Follow Parent"
-    bl_description = "Follow the simulation collection's sole mesh or nearest shared object parent while preserving the controller's world transform"
+    bl_description = "Refresh the controller and emitter hierarchy parenting while preserving current world transforms"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -407,7 +550,8 @@ class RAINFLOW_OT_refresh_parent(bpy.types.Operator):
             self.report({'ERROR'}, str(error))
             return {'CANCELLED'}
 
-        _parent_controller(controller, parent_target)
+        _set_parent_keep_world(controller, parent_target)
+        _prepare_emitter_collection(controller, modifier)
         controller[TARGET_TAG] = simulation_collection.name
         if ambiguous_parent:
             self.report({'WARNING'}, (
@@ -442,9 +586,20 @@ class RAINFLOW_OT_remove_simulation(bpy.types.Operator):
                     _controller_collections(other_controller)
                 )
         controller_groups = []
+        spawner_collections = set()
         for modifier in controller.modifiers:
             if is_rainflow_modifier(modifier):
                 controller_groups.append(modifier.node_group)
+                collection = _modifier_collection(modifier, "rain spawner")
+                if collection:
+                    spawner_collections.add(collection)
+
+        for collection in spawner_collections:
+            if collection.get(SPAWNER_COLLECTION_TAG):
+                continue
+            for root in _collection_root_objects(collection):
+                if root.parent == controller:
+                    _set_parent_keep_world(root, None)
 
         _remove_object_and_unused_mesh(controller)
         for node_group in controller_groups:

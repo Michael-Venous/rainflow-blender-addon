@@ -11,7 +11,8 @@ This repository publishes the Python wrapper used by RainFlow:
 - Guided creation of non-destructive simulation controllers
 - Simulation, static-distribution, and rain-spawner collection management
 - Automatic creation of a wireframe spawn plane when no spawner is supplied
-- Independent node-tree copies for multiple RainFlow setups
+- Controller and emitter-hierarchy parenting for rigid moving targets
+- Independent node-tree and emitter copies for multiple RainFlow setups
 - Driver repair, duplication, selection, and clean removal tools
 
 The Python source is provided under **GPL-3.0-or-later** so it can be inspected, modified, and redistributed under that license.

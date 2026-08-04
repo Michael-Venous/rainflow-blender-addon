@@ -49,6 +49,58 @@ def _simulation_meshes(collection):
     return [obj for obj in collection.all_objects if obj.type == 'MESH']
 
 
+def _object_ancestors(obj):
+    """Return an object followed by each parent up to the hierarchy root."""
+    ancestors = []
+    while obj:
+        ancestors.append(obj)
+        obj = obj.parent
+    return ancestors
+
+
+def _simulation_parent(collection):
+    """Choose the transform that best represents a simulation collection."""
+    meshes = sorted(_simulation_meshes(collection), key=lambda obj: obj.name.casefold())
+    if not meshes:
+        raise ValueError("Simulation Mesh Collection must contain at least one mesh object")
+    if len(meshes) == 1:
+        return meshes[0], False
+
+    ancestor_chains = [_object_ancestors(mesh) for mesh in meshes]
+    common_ancestors = set(ancestor_chains[0])
+    for chain in ancestor_chains[1:]:
+        common_ancestors.intersection_update(chain)
+    if common_ancestors:
+        return next(
+            ancestor for ancestor in ancestor_chains[0]
+            if ancestor in common_ancestors
+        ), False
+
+    # Collections do not have transforms. Independently rooted meshes have no
+    # safe automatic parent, so keep the controller world-space and warn.
+    return None, True
+
+
+def _parent_controller(controller, parent):
+    """Set or clear a controller parent without changing its world transform."""
+    if parent == controller:
+        return
+    world_matrix = controller.matrix_world.copy()
+    controller.parent = parent
+    if parent:
+        controller.parent_type = 'OBJECT'
+        controller.matrix_parent_inverse = parent.matrix_world.inverted_safe()
+    controller.matrix_world = world_matrix
+
+
+def _remove_object_and_unused_mesh(obj):
+    """Remove a generated object and its mesh when nothing else uses it."""
+    mesh = obj.data if isinstance(obj.data, bpy.types.Mesh) else None
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if mesh and mesh.users == 0:
+        bpy.data.meshes.remove(mesh)
+
+
 def _collection_world_bounds(collection):
     meshes = _simulation_meshes(collection)
     if not meshes:
@@ -86,7 +138,13 @@ def _create_spawn_surface(name, simulation_collection, collection):
     return surface
 
 
-def _create_controller(name, simulation_collection, static_collection, spawner_collection):
+def _create_controller(
+    name,
+    simulation_collection,
+    static_collection,
+    spawner_collection,
+    parent_target,
+):
     mesh = bpy.data.meshes.new(f"{name} Mesh")
     mesh.from_pydata([(0, 0, 0), (0.001, 0, 0), (0, 0.001, 0)], [], [(0, 1, 2)])
     controller = bpy.data.objects.new(name, mesh)
@@ -97,6 +155,7 @@ def _create_controller(name, simulation_collection, static_collection, spawner_c
     # from renders above; only that helper surface should be viewport-only.
     controller.hide_render = False
     bpy.context.scene.collection.objects.link(controller)
+    _parent_controller(controller, parent_target)
 
     modifier = controller.modifiers.new("RainFlow Surface Raindrops", 'NODES')
     make_controller_node_group(controller, modifier, load_node_group())
@@ -173,7 +232,7 @@ class RAINFLOW_OT_add_simulation(bpy.types.Operator):
 
     simulation_collection_name: bpy.props.StringProperty(
         name="Simulation Mesh Collection",
-        description="Required collection containing the meshes where raindrops flow",
+        description="Required collection containing the meshes where raindrops flow. The controller follows its sole mesh or shared hierarchy parent.",
     )
     static_collection_name: bpy.props.StringProperty(
         name="Static Distribute Collection",
@@ -204,6 +263,7 @@ class RAINFLOW_OT_add_simulation(bpy.types.Operator):
         )
         layout.separator()
         layout.label(text="Simulation Mesh Collection is required.", icon='INFO')
+        layout.label(text="Moving targets should use one shell or a shared parent.")
         layout.label(text="Blank optional fields use safe generated defaults.")
 
     def execute(self, context):
@@ -214,6 +274,7 @@ class RAINFLOW_OT_add_simulation(bpy.types.Operator):
         if not _simulation_meshes(simulation_collection):
             self.report({'ERROR'}, "Simulation Mesh Collection must contain at least one mesh")
             return {'CANCELLED'}
+        parent_target, ambiguous_parent = _simulation_parent(simulation_collection)
 
         static_collection = (
             bpy.data.collections.get(self.static_collection_name)
@@ -242,10 +303,21 @@ class RAINFLOW_OT_add_simulation(bpy.types.Operator):
             simulation_collection,
             static_collection,
             spawner_collection,
+            parent_target,
         )
+        if ambiguous_parent:
+            self.report({"WARNING"}, (
+                "The collection has independently rooted meshes, so the controller "
+                "remains world-space. Use one simulation shell or a shared object "
+                "parent for predictable rigid motion."
+            ))
+        else:
+            self.report(
+                {'INFO'},
+                f"Created RainFlow setup for {simulation_collection.name}"
+            )
         context.view_layer.objects.active = controller
         controller.select_set(True)
-        self.report({'INFO'}, f"Created RainFlow setup for {simulation_collection.name}")
         return {'FINISHED'}
 
 
@@ -269,7 +341,7 @@ class RAINFLOW_OT_select_simulation(bpy.types.Operator):
 class RAINFLOW_OT_duplicate_simulation(bpy.types.Operator):
     bl_idname = "rainflow.duplicate_simulation"
     bl_label = "Duplicate RainFlow Setup"
-    bl_description = "Duplicate the controller and its current settings; configure its collections for a new target"
+    bl_description = "Duplicate the controller and its current settings; after changing its simulation collection, update its follow parent"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -290,7 +362,63 @@ class RAINFLOW_OT_duplicate_simulation(bpy.types.Operator):
             obj.select_set(False)
         duplicate.select_set(True)
         context.view_layer.objects.active = duplicate
-        self.report({'INFO'}, "Duplicated controller. Change the collection inputs before using it on another target.")
+        self.report({'INFO'}, "Duplicated controller. After changing its collections, click Update Follow Parent.")
+        return {'FINISHED'}
+
+
+class RAINFLOW_OT_refresh_parent(bpy.types.Operator):
+    bl_idname = "rainflow.refresh_parent"
+    bl_label = "Update Follow Parent"
+    bl_description = "Follow the simulation collection's sole mesh or nearest shared object parent while preserving the controller's world transform"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return active_controller(context) is not None
+
+    def execute(self, context):
+        controller = active_controller(context)
+        modifier = next(
+            (item for item in controller.modifiers if is_rainflow_modifier(item)),
+            None,
+        )
+        if not modifier:
+            self.report({'ERROR'}, "RainFlow modifier is missing")
+            return {'CANCELLED'}
+        simulation_socket = next(
+            (
+                socket for socket in input_sockets(modifier.node_group)
+                if socket.name == "simulation mesh"
+            ),
+            None,
+        )
+        simulation_collection = (
+            modifier_socket_value(modifier, simulation_socket.identifier)
+            if simulation_socket else None
+        )
+        if not isinstance(simulation_collection, bpy.types.Collection):
+            self.report({'ERROR'}, "Select a Simulation Mesh Collection first")
+            return {'CANCELLED'}
+        try:
+            parent_target, ambiguous_parent = _simulation_parent(
+                simulation_collection
+            )
+        except ValueError as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+
+        _parent_controller(controller, parent_target)
+        controller[TARGET_TAG] = simulation_collection.name
+        if ambiguous_parent:
+            self.report({'WARNING'}, (
+                "The collection has independently rooted meshes, so the controller "
+                "was left world-space. Use one simulation shell or a shared object "
+                "parent for predictable rigid motion."
+            ))
+        else:
+            self.report(
+                {'INFO'}, f"Controller now follows {parent_target.name}"
+            )
         return {'FINISHED'}
 
 
@@ -318,7 +446,7 @@ class RAINFLOW_OT_remove_simulation(bpy.types.Operator):
             if is_rainflow_modifier(modifier):
                 controller_groups.append(modifier.node_group)
 
-        bpy.data.objects.remove(controller, do_unlink=True)
+        _remove_object_and_unused_mesh(controller)
         for node_group in controller_groups:
             remove_controller_node_groups(node_group)
         for collection in linked_collections:
@@ -327,7 +455,7 @@ class RAINFLOW_OT_remove_simulation(bpy.types.Operator):
             if collection.get(SPAWNER_COLLECTION_TAG):
                 for obj in list(collection.objects):
                     if obj.get(SPAWNER_TAG):
-                        bpy.data.objects.remove(obj, do_unlink=True)
+                        _remove_object_and_unused_mesh(obj)
             if collection.get(SIM_COLLECTION_TAG):
                 for obj in list(collection.objects):
                     collection.objects.unlink(obj)
@@ -368,6 +496,7 @@ CLASSES = (
     RAINFLOW_OT_add_simulation,
     RAINFLOW_OT_select_simulation,
     RAINFLOW_OT_duplicate_simulation,
+    RAINFLOW_OT_refresh_parent,
     RAINFLOW_OT_remove_simulation,
     RAINFLOW_OT_open_nodes,
 )

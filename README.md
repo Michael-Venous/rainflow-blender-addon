@@ -29,7 +29,10 @@ The Python wrapper expects a compatible node library at runtime and reports an i
 
 ## For customers
 
-Install the complete ZIP supplied through the official RainFlow product download rather than downloading this repository. Gumroad and Superhive purchase links will be added here when the listings are live.
+Install the complete ZIP supplied through an official RainFlow product download rather than downloading this repository:
+
+- [Purchase on Gumroad](https://venousfx.gumroad.com/l/rainflow)
+- [Purchase on Superhive](https://superhivemarket.com/products/rainflow)
 
 RainFlow requires **Blender 5.2 or newer**.
 
@@ -50,3 +53,5 @@ The Python integration in this repository is GPL-3.0-or-later; see [LICENSE](LIC
 ## Support development
 
 If this source or RainFlow has helped you, you can support continued development through [Venous FX on Ko-fi](https://ko-fi.com/venous_fx).
+
+For product support, email **the.michael.venous@gmail.com**, message **@MrBullCrap** on Discord, or use the support conversation on the marketplace where you purchased RainFlow. Response time is normally within seven calendar days. Refund requests are governed by the marketplace used for purchase and RainFlow's published 30-day limited refund policy.

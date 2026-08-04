@@ -91,6 +91,11 @@ class RAINFLOW_PT_main(bpy.types.Panel):
         for socket in input_sockets(modifier.node_group):
             if socket.name in SETUP_SOCKET_NAMES:
                 _draw_socket(setup, modifier, socket)
+        setup.operator("rainflow.refresh_parent", icon='CONSTRAINT')
+        if controller.parent:
+            setup.label(text=f"Follows: {controller.parent.name}", icon='LINKED')
+        else:
+            setup.label(text="Follows: World Space", icon='WORLD')
 
         controls = layout.box()
         controls.label(text="Rain Controls", icon='MOD_PHYSICS')

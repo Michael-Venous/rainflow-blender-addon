@@ -30,7 +30,7 @@ DEFAULT_SOCKET_VALUES = {
     "rain vector": (0.0, 0.0, -1.0),
     "speed": 1.0,
     "rain lifetime": 50.0,
-    "iterations": 2,
+    "iterations": 1,
     "density": 50.0,
     "density static": 50.0,
     "lifetime": 8.0,

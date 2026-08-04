@@ -1,3 +1,11 @@
+# Copyright (C) 2026 Venous FX
+#
+# This file is part of the RainFlow Python integration.
+# You may redistribute and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software Foundation, version 3 or
+# (at your option) any later version. It is provided without warranty.
+# See the bundled LICENSE file for the complete license.
+
 ADDON_ID = "rainflow"
 VERSION = "1.0.0"
 LIBRARY_GROUP_NAME = "raindrop"
@@ -6,8 +14,9 @@ LIBRARY_SOURCE_TAG = "rainflow_library_source"
 CONTROLLER_TAG = "rainflow_controller"
 CONTROLLER_GROUP_TAG = "rainflow_controller_node_group"
 GROUP_OWNER_TAG = "rainflow_group_owner"
+GROUP_BASE_NAME_TAG = "rainflow_group_base_name"
 GROUP_GRAPH_VERSION_TAG = "rainflow_group_graph_version"
-GROUP_GRAPH_VERSION = 3
+GROUP_GRAPH_VERSION = 4
 TARGET_TAG = "rainflow_target"
 SIM_COLLECTION_TAG = "rainflow_simulation_collection"
 SPAWNER_COLLECTION_TAG = "rainflow_spawner_collection"
@@ -17,12 +26,13 @@ SPAWNER_TAG = "rainflow_spawn_surface"
 # intentionally stored in the add-on instead of relying on mutable node-group
 # interface defaults in the source .blend.
 DEFAULT_SOCKET_VALUES = {
+    "hide static in viewport": False,
     "rain vector": (0.0, 0.0, -1.0),
     "speed": 1.0,
-    "rain lifetime": 20.0,
-    "iterations": 1,
+    "rain lifetime": 50.0,
+    "iterations": 2,
     "density": 50.0,
-    "density static": 100.0,
+    "density static": 50.0,
     "lifetime": 8.0,
     "adhesion": 0.5,
     "noise scale": 0.03,

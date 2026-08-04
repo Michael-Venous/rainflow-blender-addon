@@ -1,31 +1,52 @@
-# RainFlow Blender Add-on
+# RainFlow Blender Add-on — GPL Source Only
 
-This repository contains the source code for the RainFlow Blender add-on, licensed under **GPL-3.0-or-later**.
+> [!IMPORTANT]
+> **This repository is not the complete or installable RainFlow product.** It contains only the GPL-licensed Python integration source and intentionally omits the required RainFlow Geometry Nodes library, example scene, customer documentation, and packaged product. A clone or GitHub-generated ZIP will not function as the full add-on by itself.
 
-RainFlow provides the Blender user interface and non-destructive scene-management workflow around a Geometry Nodes rain system. Artists select a required Simulation Mesh Collection, may select optional Static Distribute and Rain Spawner collections, and control every published input on the attached Geometry Nodes group. Static distribution defaults to the simulation collection; when no spawner is selected, RainFlow generates a correctly sized wireframe plane that is hidden from renders.
+## What this repository contains
 
-Each controller receives a private recursive copy of the `raindrop` dependency graph. All nested `controls` and `post` instances reuse that controller's private driven groups, keeping duplicated and multi-simulation setups independent.
+This repository publishes the Python wrapper used by RainFlow:
 
-RainFlow also repairs direct Group Output drivers used by the streamlined `controls` and `post` groups. Internal values such as `rain_lifetime` remain independent from the user-facing lifetime/max-age modifier control.
+- The RainFlow sidebar and artist-facing controls
+- Guided creation of non-destructive simulation controllers
+- Simulation, static-distribution, and rain-spawner collection management
+- Automatic creation of a wireframe spawn plane when no spawner is supplied
+- Independent node-tree copies for multiple RainFlow setups
+- Driver repair, duplication, selection, and clean removal tools
 
-## Important: this is source code only
+The Python source is provided under **GPL-3.0-or-later** so it can be inspected, modified, and redistributed under that license.
 
-This public repository deliberately does **not** contain `rainflow/resources/rainflow_library.blend`, example scenes, renders, customer packages, or seller documentation. The add-on loads that library at runtime; it is supplied with the separately distributed RainFlow product package.
+## What is deliberately missing
 
-The source in this repository is complete for the Python add-on wrapper. It can be inspected, modified, and redistributed under the terms of the GPL-3.0-or-later license. Do not assume that the absence of the commercial node-library asset grants a license to that asset.
+The commercial product's required `rainflow/resources/rainflow_library.blend` asset is **not** published here. This repository also excludes:
 
-## Requirements
+- The RainFlow Geometry Nodes simulation and its nested node groups
+- The installable customer package
+- `example.blend`
+- Product documentation, renders, and seller materials
 
-- Blender 5.1 or newer
-- A compatible `rainflow_library.blend` at `rainflow/resources/rainflow_library.blend`
+The Python wrapper expects a compatible node library at runtime and reports an installation error when that asset is absent. The missing asset is not replaced by the GPL license for this code.
 
-## Install from source
+## For customers
 
-1. Clone or download this repository.
-2. Place the compatible node library at `rainflow/resources/rainflow_library.blend`.
-3. Zip the `rainflow` directory so that `rainflow/__init__.py` is inside the zip.
-4. In Blender, open **Edit → Preferences → Add-ons → Install from Disk**, choose the zip, enable **RainFlow Surface Raindrops**, then open the **RainFlow** tab in the 3D View sidebar.
+Install the complete ZIP supplied through the official RainFlow product download rather than downloading this repository. Gumroad and Superhive purchase links will be added here when the listings are live.
+
+RainFlow requires **Blender 5.2 or newer**.
+
+## For developers
+
+You can study or modify the wrapper from this repository. Runtime testing additionally requires a compatible node library that you created or obtained under terms allowing its use:
+
+1. Place it at `rainflow/resources/rainflow_library.blend`.
+2. Zip the **contents** of the `rainflow` directory so `blender_manifest.toml` and `__init__.py` are at the ZIP root.
+3. In Blender 5.2+, choose **Edit → Preferences → Get Extensions → Install from Disk**.
+
+These steps are for source development and do not recreate the commercial RainFlow node asset.
 
 ## License boundary
 
-Blender’s Extensions Platform requires GPL-3.0-or-later for add-ons and CC0 for assets included in an extension. This repository therefore publishes the add-on code under GPL. Before submitting any product that bundles a non-CC0 node library to the official Extensions Platform, confirm the licensing and packaging model with Blender’s current platform requirements or qualified counsel.
+The Python integration in this repository is GPL-3.0-or-later; see [LICENSE](LICENSE). The separately distributed Geometry Nodes library and other non-code product assets have their own asset license. Nothing in this repository grants rights to assets that are not present here.
+
+## Support development
+
+If this source or RainFlow has helped you, you can support continued development through [Venous FX on Ko-fi](https://ko-fi.com/venous_fx).

@@ -1,5 +1,5 @@
-# Runtime library
+# Runtime library placeholder
 
-`rainflow_library.blend` is intentionally not tracked in this public source repository.
+The required `rainflow_library.blend` Geometry Nodes asset is intentionally not tracked in this public source repository.
 
-The RainFlow add-on loads this file at runtime. Place a compatible library beside this file when testing the add-on from source.
+This repository is not a functional or installable copy of the complete RainFlow product. The Python wrapper reports a missing-library error if it is run without a compatible runtime asset. Developers may place a node library here only when they created it or obtained it under terms that permit that use.

@@ -1,3 +1,11 @@
+# Copyright (C) 2026 Venous FX
+#
+# This file is part of the RainFlow Python integration.
+# You may redistribute and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software Foundation, version 3 or
+# (at your option) any later version. It is provided without warranty.
+# See the bundled LICENSE file for the complete license.
+
 """Library loading and Geometry Nodes interface helpers."""
 
 from pathlib import Path
@@ -8,6 +16,7 @@ from .constants import (
     CONTROLLER_GROUP_TAG,
     CONTROL_OUTPUT_BINDINGS,
     DEFAULT_SOCKET_VALUES,
+    GROUP_BASE_NAME_TAG,
     GROUP_GRAPH_VERSION,
     GROUP_GRAPH_VERSION_TAG,
     GROUP_OWNER_TAG,
@@ -78,7 +87,7 @@ def modifier_socket_input(modifier, identifier):
 
 
 def modifier_socket_value(modifier, identifier):
-    """Read a Geometry Nodes modifier input in Blender 5.1 or 5.2+."""
+    """Read a Geometry Nodes modifier input through Blender 5.2's typed API."""
     entry = modifier_socket_input(modifier, identifier)
     if entry:
         return entry.value
@@ -89,7 +98,7 @@ def modifier_socket_value(modifier, identifier):
 
 
 def set_modifier_socket_value(modifier, identifier, value):
-    """Write a Geometry Nodes modifier input in Blender 5.1 or 5.2+."""
+    """Write a Geometry Nodes modifier input through Blender 5.2's typed API."""
     entry = modifier_socket_input(modifier, identifier)
     if entry:
         entry.value = value
@@ -302,6 +311,36 @@ def ensure_direct_output_drivers(node_group, controller, modifier, modifier_sock
             )
 
 
+def _base_group_name(node_group):
+    """Return the authored name without Blender copies or old owner suffixes."""
+    tagged_name = node_group.get(GROUP_BASE_NAME_TAG)
+    if tagged_name:
+        return tagged_name
+    name = node_group.name.split(" — RainFlow", 1)[0]
+    if len(name) > 4 and name[-4] == '.' and name[-3:].isdigit():
+        name = name[:-4]
+    return name
+
+
+def _controller_group_label(controller):
+    """Turn the generated controller name into a short, readable owner label."""
+    label = controller.name
+    prefix = "RainFlow — "
+    if label.startswith(prefix):
+        label = label[len(prefix):]
+    label = label.replace(" — Controller", "", 1)
+    return label or controller.name
+
+
+def _rename_controller_graph(node_group, controller):
+    """Keep private group names concise while preserving per-setup ownership."""
+    owner_label = _controller_group_label(controller)
+    for group in controller_group_graph(node_group):
+        base_name = _base_group_name(group)
+        group[GROUP_BASE_NAME_TAG] = base_name
+        group.name = f"{base_name} — {owner_label}"
+
+
 def _copy_group_graph(source_group, controller, modifier, modifier_sockets, copies):
     """Copy a node group and its complete nested Geometry Nodes dependency graph."""
     if source_group in copies:
@@ -309,9 +348,12 @@ def _copy_group_graph(source_group, controller, modifier, modifier_sockets, copi
 
     group_copy = source_group.copy()
     copies[source_group] = group_copy
-    group_copy.name = f"{source_group.name} — {controller.name}"
+    group_copy.use_fake_user = False
+    base_name = _base_group_name(source_group)
+    group_copy.name = f"{base_name} — {_controller_group_label(controller)}"
     group_copy[CONTROLLER_GROUP_TAG] = True
     group_copy[GROUP_OWNER_TAG] = controller.name
+    group_copy[GROUP_BASE_NAME_TAG] = base_name
     group_copy[GROUP_GRAPH_VERSION_TAG] = GROUP_GRAPH_VERSION
     if LIBRARY_TAG in group_copy:
         del group_copy[LIBRARY_TAG]
@@ -355,6 +397,7 @@ def make_controller_node_group(controller, modifier, source_group=None):
             group, controller, modifier, modifier_sockets
         )
     ensure_modifier_properties(modifier)
+    _rename_controller_graph(controller_group, controller)
     return controller_group
 
 
@@ -372,6 +415,7 @@ def ensure_controller_node_group(controller, modifier):
         )
         if old_group and old_group.get(CONTROLLER_GROUP_TAG):
             remove_controller_node_groups(old_group)
+        _rename_controller_graph(new_group, controller)
         ensure_modifier_properties(modifier)
         return new_group
 
@@ -379,6 +423,7 @@ def ensure_controller_node_group(controller, modifier):
     modifier_sockets = {
         socket.name: socket.identifier for socket in input_sockets(node_group)
     }
+    _rename_controller_graph(node_group, controller)
     for group in controller_group_graph(node_group):
         group[GROUP_OWNER_TAG] = controller.name
         relink_group_drivers(
@@ -413,12 +458,13 @@ def remove_controller_node_groups(node_group):
     if not node_group or not node_group.get(CONTROLLER_GROUP_TAG):
         return
     pending = controller_group_graph(node_group)
-    while pending:
-        removed_any = False
-        for group in list(pending):
-            if group.users == 0:
-                bpy.data.node_groups.remove(group)
-                pending.remove(group)
-                removed_any = True
-        if not removed_any:
-            break
+    pending_set = set(pending)
+    for obj in bpy.data.objects:
+        for modifier in obj.modifiers:
+            if modifier.type == 'NODES' and modifier.node_group in pending_set:
+                return
+    for group in pending:
+        group.use_fake_user = False
+    for group in pending:
+        if group.name in bpy.data.node_groups:
+            bpy.data.node_groups.remove(group, do_unlink=True)

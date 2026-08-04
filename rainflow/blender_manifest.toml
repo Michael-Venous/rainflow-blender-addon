@@ -1,0 +1,27 @@
+schema_version = "1.0.0"
+
+id = "rainflow"
+version = "1.0.0"
+name = "RainFlow Surface Raindrops"
+tagline = "Create and manage animated surface raindrop simulations"
+maintainer = "Venous FX"
+type = "add-on"
+
+website = "https://github.com/Michael-Venous/rainflow-blender-addon"
+
+blender_version_min = "5.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+copyright = [
+  "2026 Venous FX",
+]
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "/.git/",
+  "/*.zip",
+]

@@ -1,3 +1,11 @@
+# Copyright (C) 2026 Venous FX
+#
+# This file is part of the RainFlow Python integration.
+# You may redistribute and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software Foundation, version 3 or
+# (at your option) any later version. It is provided without warranty.
+# See the bundled LICENSE file for the complete license.
+
 """3D View sidebar UI for RainFlow."""
 
 import bpy

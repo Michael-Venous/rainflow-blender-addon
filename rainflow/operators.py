@@ -1,3 +1,11 @@
+# Copyright (C) 2026 Venous FX
+#
+# This file is part of the RainFlow Python integration.
+# You may redistribute and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software Foundation, version 3 or
+# (at your option) any later version. It is provided without warranty.
+# See the bundled LICENSE file for the complete license.
+
 """Operators that create, manage, and remove isolated RainFlow setups."""
 
 import bpy
@@ -84,14 +92,17 @@ def _create_controller(name, simulation_collection, static_collection, spawner_c
     controller = bpy.data.objects.new(name, mesh)
     controller[CONTROLLER_TAG] = True
     controller[TARGET_TAG] = simulation_collection.name
-    controller.hide_render = True
+    # The controller carries the generated raindrop geometry, so it must be
+    # render-visible by default. The auto-created spawner plane remains hidden
+    # from renders above; only that helper surface should be viewport-only.
+    controller.hide_render = False
     bpy.context.scene.collection.objects.link(controller)
 
     modifier = controller.modifiers.new("RainFlow Surface Raindrops", 'NODES')
     make_controller_node_group(controller, modifier, load_node_group())
     for socket in input_sockets(modifier.node_group):
         if socket.name == "hide static in viewport":
-            set_modifier_socket_value(modifier, socket.identifier, True)
+            set_modifier_socket_value(modifier, socket.identifier, False)
         elif socket.name == "rain spawner":
             set_modifier_socket_value(
                 modifier, socket.identifier, spawner_collection
@@ -118,6 +129,19 @@ def active_controller(context):
     if obj and obj.get(CONTROLLER_TAG):
         return obj
     return None
+
+
+def _controller_collections(controller):
+    """Return collections assigned to RainFlow modifiers on one controller."""
+    collections = set()
+    for modifier in controller.modifiers:
+        if not is_rainflow_modifier(modifier):
+            continue
+        for socket in input_sockets(modifier.node_group):
+            value = modifier_socket_value(modifier, socket.identifier)
+            if isinstance(value, bpy.types.Collection):
+                collections.add(value)
+    return collections
 
 
 def repair_existing_controllers():
@@ -282,20 +306,24 @@ class RAINFLOW_OT_remove_simulation(bpy.types.Operator):
 
     def execute(self, context):
         controller = active_controller(context)
-        linked_collections = set()
+        linked_collections = _controller_collections(controller)
+        collections_used_elsewhere = set()
+        for other_controller in find_controllers(context.scene):
+            if other_controller != controller:
+                collections_used_elsewhere.update(
+                    _controller_collections(other_controller)
+                )
         controller_groups = []
         for modifier in controller.modifiers:
             if is_rainflow_modifier(modifier):
                 controller_groups.append(modifier.node_group)
-                for socket in input_sockets(modifier.node_group):
-                    value = modifier_socket_value(modifier, socket.identifier)
-                    if isinstance(value, bpy.types.Collection):
-                        linked_collections.add(value)
 
         bpy.data.objects.remove(controller, do_unlink=True)
         for node_group in controller_groups:
             remove_controller_node_groups(node_group)
         for collection in linked_collections:
+            if collection in collections_used_elsewhere:
+                continue
             if collection.get(SPAWNER_COLLECTION_TAG):
                 for obj in list(collection.objects):
                     if obj.get(SPAWNER_TAG):
